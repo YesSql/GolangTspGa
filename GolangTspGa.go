@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"sort"
 	"runtime"
+	"time"
 )
 
 type location struct {
@@ -184,57 +185,96 @@ func iterate(solutions population) {
 	sort.Sort(solutions)
 }
 
-func iterate_n(solutions population, iterations int, name string, c chan float64) {
+func iterate_n(solutions population, name string, stop chan bool, c chan population_result) {
 	
 	sort.Sort(solutions)
 	best_tour_length := tour_length(solutions.tours[0])
-	
-	for i:=0; i<iterations; i++ {
+
+	result := population_result{ name, best_tour_length}
+	i := 1
+	for ; ; {
 		iterate(solutions)
 		current_best := tour_length(solutions.tours[0])
 		if(current_best < best_tour_length) {
-			fmt.Printf("%s\tGen: %d\tNew Best: %.3f\n", name, i+1, current_best)
+			fmt.Printf("%s\tGen: %d\tNew Best: %.3f\n", name, i, current_best)
 			best_tour_length = current_best
+			result.length = current_best
 		}
-	}
-	
-	
-	
-	c <- best_tour_length
+		
+		select {
+			case  <- stop:
+				c <- result		
+					return;
+			default:
+		}
+		i++
+	}	
 }
 
 
 func print_update()
 
+type population_result struct {
+	name string
+	length float64
+}
+
 func main() {
 		
-	runtime.GOMAXPROCS(4)
-	
-	fmt.Println(runtime.NumCPU())
+	cpus :=	runtime.NumCPU()
+		
+    //cpus = 2; //Fake some sweet hardware		
+		
+	runtime.GOMAXPROCS(cpus)
 	
 	rand.Seed(100)
 	curr_tour := create_tour(100, 100)
-
-	ch1 := make(chan float64)
-	ch2 := make(chan float64)
-
-	solutions := create_population(curr_tour, 30)
-    solutions2 := create_population(curr_tour, 30)
-
-	go iterate_n(solutions,  1000000, "Population 1", ch1)
-	go iterate_n(solutions2, 1000000, "Population 2", ch2)
 	
-	status, status2 := <- ch1, <-ch2
-	
-	best_solution := solutions
-	
-	if status < status2 {
-		best_solution = solutions
-	} else {
-		best_solution = solutions2
+	population_results := make(chan population_result)
+	stop := make(chan bool)
+	results := make([] population_result, cpus)
+	solutions := make([] population, cpus)
+
+	solution_map := map[string] population {}
+			
+	for i := range solutions {
+		solutions[i] = create_population(curr_tour, 30)
+		name := fmt.Sprintf("Population: %d", i+1)
+		solution_map[name] = solutions[i]
+		go iterate_n(solutions[i], name, stop, population_results)
 	}
+	
 
-	fmt.Println("S0 ", tour_length(solutions.tours[0]), " S1 ", tour_length(solutions2.tours[1]))
+	for i:=0 ; i<5000; i++ {
+		time.Sleep(1)
+	}
+	
+	for i:=0; i<cpus; i++ {
+		stop <- true
+	}		
+
+	for count:=0; count<cpus;  {
+		select {
+			case results[count] = <- population_results:
+				count++
+			default:
+				time.Sleep(1)
+		}
+	}
+	
+
+	best_length := results[0].length
+	best_result := results[0]
+	
+	for i := 1; i<cpus; i++ {
+		if results[i].length < best_length {
+			best_result = results[i]
+			best_length = results[i].length
+		}
+	}
+	
+	best_solution := solution_map[best_result.name]
+
 
 	fmt.Println()
 	for _, value := range best_solution.tours[0].order {
@@ -242,7 +282,10 @@ func main() {
 	}
 	fmt.Println("Distance ", tour_length(best_solution.tours[0]))
 	
-	
-	
 	fmt.Printf("Tour length: %0.3f\n", best_solution.tours[0].tour_length)
+	
+	for i:=0; i<cpus; i++ {
+		fmt.Printf("%s: %.3f\n", results[i].name, results[i].length)
+	}
+
 }
