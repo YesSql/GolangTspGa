@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"runtime"
 )
 
 type location struct {
@@ -142,11 +143,12 @@ func tour_length(tour_in tour) float64 {
 	for i := 1; i < len(tour_in.order); i++ {
 		length += distance(tour_in.locations[tour_in.order[i-1]], tour_in.locations[tour_in.order[i]])
 	}
+	length += distance(tour_in.locations[tour_in.order[0]], tour_in.locations[tour_in.order[len(tour_in.order)-1]])
 	return length
 }
 
-func iterate(solutions population) population {
-	sort.Sort(solutions)
+func iterate(solutions population) {
+	
 	solutions.best_tour = solutions.tours[0]
 
 	deadSolutions := 0
@@ -179,34 +181,68 @@ func iterate(solutions population) population {
 		baby.tour_length = newLength
 		solutions.tours = append(solutions.tours, baby)
 	}
-
-	return solutions
+	sort.Sort(solutions)
 }
 
+func iterate_n(solutions population, iterations int, name string, c chan float64) {
+	
+	sort.Sort(solutions)
+	best_tour_length := tour_length(solutions.tours[0])
+	
+	for i:=0; i<iterations; i++ {
+		iterate(solutions)
+		current_best := tour_length(solutions.tours[0])
+		if(current_best < best_tour_length) {
+			fmt.Printf("%s\tGen: %d\tNew Best: %.3f\n", name, i+1, current_best)
+			best_tour_length = current_best
+		}
+	}
+	
+	
+	
+	c <- best_tour_length
+}
+
+
+func print_update()
+
 func main() {
+		
+	runtime.GOMAXPROCS(4)
+	
+	fmt.Println(runtime.NumCPU())
+	
 	rand.Seed(100)
-	curr_tour := create_tour(50, 100)
+	curr_tour := create_tour(100, 100)
+
+	ch1 := make(chan float64)
+	ch2 := make(chan float64)
 
 	solutions := create_population(curr_tour, 30)
+    solutions2 := create_population(curr_tour, 30)
 
-	for i := 0; i < 1000000; i++ {
-		solutions = iterate(solutions)
-		if i%80000 == 0 {
-			fmt.Println("")
-		}
-		if i%1000 == 0 {
-			fmt.Print("*")
-		}
+	go iterate_n(solutions,  1000000, "Population 1", ch1)
+	go iterate_n(solutions2, 1000000, "Population 2", ch2)
+	
+	status, status2 := <- ch1, <-ch2
+	
+	best_solution := solutions
+	
+	if status < status2 {
+		best_solution = solutions
+	} else {
+		best_solution = solutions2
 	}
 
-	sort.Sort(solutions)
+	fmt.Println("S0 ", tour_length(solutions.tours[0]), " S1 ", tour_length(solutions2.tours[1]))
 
-	for j := 0; j < 1; j++ {
-		fmt.Println()
-		for _, value := range solutions.tours[j].order {
-			fmt.Printf("%0.3f\t%0.3f\n", solutions.tours[j].locations[value].X, solutions.tours[j].locations[value].Y)
-		}
-		fmt.Println("Distance ", tour_length(solutions.tours[j]))
+	fmt.Println()
+	for _, value := range best_solution.tours[0].order {
+		fmt.Printf("%0.3f\t%0.3f\n", best_solution.tours[0].locations[value].X, best_solution.tours[0].locations[value].Y)
 	}
-	fmt.Printf("Tour length: %0.3f\n", solutions.tours[0].tour_length)
+	fmt.Println("Distance ", tour_length(best_solution.tours[0]))
+	
+	
+	
+	fmt.Printf("Tour length: %0.3f\n", best_solution.tours[0].tour_length)
 }
