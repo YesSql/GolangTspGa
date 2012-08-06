@@ -7,6 +7,9 @@ import (
 	"sort"
 	"runtime"
 	"time"
+	"net/http"
+	"flag"
+	"bytes"
 )
 
 type location struct {
@@ -190,21 +193,24 @@ func iterate_n(solutions population, name string, stop chan bool, c chan populat
 	sort.Sort(solutions)
 	best_tour_length := tour_length(solutions.tours[0])
 
-	result := population_result{ name, best_tour_length}
+	result := population_result{ name, best_tour_length, solutions.tours[0]}
+	c <- result	
 	i := 1
 	for ; ; {
 		iterate(solutions)
 		current_best := tour_length(solutions.tours[0])
 		if(current_best < best_tour_length) {
-			fmt.Printf("%s\tGen: %d\tNew Best: %.3f\n", name, i, current_best)
+			//fmt.Printf("%s\tGen: %d\tNew Best: %.3f\n", name, i, current_best)
 			best_tour_length = current_best
 			result.length = current_best
+			result.best_tour = solutions.tours[0]
+			c <- result	
 		}
 		
 		select {
-			case  <- stop:
-				c <- result		
-					return;
+			case  <- stop:	
+				c <- result
+				return;
 			default:
 		}
 		i++
@@ -217,18 +223,90 @@ func print_update()
 type population_result struct {
 	name string
 	length float64
+	best_tour tour
 }
+
+func serv(w http.ResponseWriter, req *http.Request) {
+	
+	var buffer bytes.Buffer
+	
+	
+	
+	buffer.WriteString("<html><body><table border = '1'><tr>")
+	for i := range lengths {
+		buffer.WriteString(fmt.Sprintf("<th> Population %d </th>", i+1))
+	}
+	buffer.WriteString("</tr><tr>")
+	for i := range lengths {
+		buffer.WriteString(fmt.Sprintf("<td> %.3f </td>", tour_length(status_map[fmt.Sprintf("Population: %d", i+1)].best_tour)))
+	}
+	buffer.WriteString("</tr><tr>")
+	for i :=0; i <len(lengths); i++ {
+		buffer.WriteString(fmt.Sprintf("<td><canvas id = 'graph_%d' width = '400' height = '400'> No support </canvas></td>",i))
+	}
+	buffer.WriteString("</tr></body>")
+	
+	for i :=0; i <len(lengths); i++ {
+		
+		the_tour := status_map[fmt.Sprintf("Population: %d", i+1)].best_tour
+		
+		buffer.WriteString(fmt.Sprintf("<script> var graph = document.getElementById('graph_%d');\n",i))
+		buffer.WriteString("var context = graph.getContext('2d');\n")
+		buffer.WriteString("context.fillStyle = 'blue';\n")
+		for j := range the_tour.order {
+			buffer.WriteString(fmt.Sprintf("context.fillRect(%d,%d,%d,%d);\n", (int)(the_tour.locations[the_tour.order[j]].X), (int)(the_tour.locations[the_tour.order[j]].Y), 2,2))
+		}
+		
+		
+		for j := 0; j< len(the_tour.order) -1; j++ {
+			buffer.WriteString("context.beginPath();\n")
+			x := (int)(the_tour.locations[the_tour.order[j]].X)
+			y := (int)(the_tour.locations[the_tour.order[j]].Y)
+			buffer.WriteString(fmt.Sprintf("context.moveTo(%d,%d);\n", x,y))
+			
+			x = (int)(the_tour.locations[the_tour.order[j+1]].X)
+			y = (int)(the_tour.locations[the_tour.order[j+1]].Y)
+			buffer.WriteString(fmt.Sprintf("context.lineTo(%d,%d);\n",x,y))
+			buffer.WriteString("context.stroke();\n")
+		}
+		
+		
+		buffer.WriteString("</script>")
+	}
+	
+	buffer.WriteString("</html>")
+	
+	
+	w.Write([]byte(buffer.String()))
+}
+
+func makeserver() {
+	var addr = flag.String("addr", ":1718", "http service address")
+	http.Handle("/", http.HandlerFunc(serv))
+	http.ListenAndServe(*addr, nil)
+}
+
+
+var lengths []float64
+
+var status_map map[string] population_result
 
 func main() {
 		
 	cpus :=	runtime.NumCPU()
 		
-    //cpus = 2; //Fake some sweet hardware		
+    cpus = 6; //Fake some sweet hardware		
 		
 	runtime.GOMAXPROCS(cpus)
 	
+	lengths = make([] float64, cpus)
+	status_map = make(map[string] population_result) 
+	for i := range lengths {
+		lengths[i] = -1.0
+	}
+	
 	rand.Seed(100)
-	curr_tour := create_tour(100, 100)
+	curr_tour := create_tour(100, 400)
 	
 	population_results := make(chan population_result)
 	stop := make(chan bool)
@@ -237,6 +315,7 @@ func main() {
 
 	solution_map := map[string] population {}
 			
+			
 	for i := range solutions {
 		solutions[i] = create_population(curr_tour, 30)
 		name := fmt.Sprintf("Population: %d", i+1)
@@ -244,10 +323,21 @@ func main() {
 		go iterate_n(solutions[i], name, stop, population_results)
 	}
 	
+	go makeserver()
 
-	for i:=0 ; i<5000; i++ {
+
+	for i:=0 ; i<50000; i++ {
 		time.Sleep(1)
+
+		select {
+			case curr_result := <- population_results:
+			status_map[curr_result.name] = curr_result	
+			default:
+		}
 	}
+	
+
+	
 	
 	for i:=0; i<cpus; i++ {
 		stop <- true
