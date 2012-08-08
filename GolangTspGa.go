@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"flag"
 	"bytes"
+	"strconv"
 )
 
 type location struct {
@@ -226,11 +227,55 @@ type population_result struct {
 	best_tour tour
 }
 
+var running bool
+
+func setup(w http.ResponseWriter, req *http.Request) (theCount int, theGoRoutineCount int) {
+	var buffer bytes.Buffer
+	var err error
+	req.ParseForm()
+	
+	for i, valu := range req.Form {
+		switch i {
+			case "count":
+				theCount, err = strconv.Atoi(valu[0])
+			case "routines":
+				theGoRoutineCount, err = strconv.Atoi(valu[0])
+		}
+	}	
+
+	if theCount > 0 && err == nil {
+		return
+	}
+	
+	buffer.WriteString("<html><body><h1>Solve the Traveling Salesman Problem with Golang and HTML5</h1><form><table><tr><td>locations: </td><td><input name = 'count' type = 'textfield' value = '100'></td></tr>")
+	buffer.WriteString("<tr><td>go routines: </td><td><input type='textfield' value = '4' name = 'routines'></td></tr>")
+	buffer.WriteString("<tr><td colspan = '2'><input type='submit' value = 'go'></td></tr></table></form></html>")
+
+	w.Write([]byte(buffer.String()))
+	
+	return
+}
+
 func serv(w http.ResponseWriter, req *http.Request) {
 	
+	count := 0
+	threads := 0
+	
+	if !running {
+		count, threads = setup(w,req)
+		if count == 0 || threads == 0 {	
+			return
+		} else {
+		 	running = true
+			go launch(count, threads)
+		}
+	}
+		
+    for i:=0 ; i<10; i++ {
+		time.Sleep(1)
+	}	
+	
 	var buffer bytes.Buffer
-	
-	
 	
 	buffer.WriteString("<html><body><table border = '1'><tr>")
 	for i := range lengths {
@@ -244,8 +289,10 @@ func serv(w http.ResponseWriter, req *http.Request) {
 	for i :=0; i <len(lengths); i++ {
 		buffer.WriteString(fmt.Sprintf("<td><canvas id = 'graph_%d' width = '400' height = '400'> No support </canvas></td>",i))
 	}
-	buffer.WriteString("</tr></body>")
-	
+	buffer.WriteString("</tr></table>")
+	buffer.WriteString("<form action = '.' type = 'post'><input type= 'submit' value = 'Refresh'/></form>")
+	buffer.WriteString("<form action = '.' type = 'post'><input type= 'submit' value = 'Please Stop'/><input type = 'hidden' name = 'x' /></form>")
+	buffer.WriteString("</body>")
 	for i :=0; i <len(lengths); i++ {
 		
 		the_tour := status_map[fmt.Sprintf("Population: %d", i+1)].best_tour
@@ -254,7 +301,7 @@ func serv(w http.ResponseWriter, req *http.Request) {
 		buffer.WriteString("var context = graph.getContext('2d');\n")
 		buffer.WriteString("context.fillStyle = 'blue';\n")
 		for j := range the_tour.order {
-			buffer.WriteString(fmt.Sprintf("context.fillRect(%d,%d,%d,%d);\n", (int)(the_tour.locations[the_tour.order[j]].X), (int)(the_tour.locations[the_tour.order[j]].Y), 2,2))
+			buffer.WriteString(fmt.Sprintf("context.fillRect(%d,%d,%d,%d);\n", (int)(the_tour.locations[the_tour.order[j]].X-2), (int)(the_tour.locations[the_tour.order[j]].Y-2), 4,4))
 		}
 		
 		
@@ -278,6 +325,13 @@ func serv(w http.ResponseWriter, req *http.Request) {
 	
 	
 	w.Write([]byte(buffer.String()))
+	
+	req.ParseForm()
+	for i, _ := range req.Form{
+		if i == "x" {
+			curtains <- true
+		}
+	}	
 }
 
 func makeserver() {
@@ -288,25 +342,35 @@ func makeserver() {
 
 
 var lengths []float64
-
 var status_map map[string] population_result
 
+var curtains chan bool
+
 func main() {
-		
-	cpus :=	runtime.NumCPU()
-		
-    cpus = 6; //Fake some sweet hardware		
-		
+
+	running = false
+
+	go makeserver()	
+				
+	for ;;{
+		time.Sleep(1)
+	}
+				
+}
+
+func launch(count int, cpus int) {
+														
 	runtime.GOMAXPROCS(cpus)
 	
 	lengths = make([] float64, cpus)
 	status_map = make(map[string] population_result) 
+	curtains = make(chan bool)
 	for i := range lengths {
 		lengths[i] = -1.0
 	}
 	
 	rand.Seed(100)
-	curr_tour := create_tour(100, 400)
+	curr_tour := create_tour(count, 400)
 	
 	population_results := make(chan population_result)
 	stop := make(chan bool)
@@ -322,21 +386,21 @@ func main() {
 		solution_map[name] = solutions[i]
 		go iterate_n(solutions[i], name, stop, population_results)
 	}
-	
-	go makeserver()
 
 
-	for i:=0 ; i<50000; i++ {
+	for i:=0 ; i<1.1e9; i++ {
 		time.Sleep(1)
 
 		select {
 			case curr_result := <- population_results:
-			status_map[curr_result.name] = curr_result	
+				status_map[curr_result.name] = curr_result	
+			case <-curtains:
+				i = 1.2e9
 			default:
 		}
 	}
 	
-
+	running = false
 	
 	
 	for i:=0; i<cpus; i++ {
