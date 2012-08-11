@@ -256,7 +256,89 @@ func setup(w http.ResponseWriter, req *http.Request) (theCount int, theGoRoutine
 	return
 }
 
+
+func javascript() string {
+	 ret := "<script>" +
+		"window.updatesActive = true;" +
+		"$().ready(init);\n" +
+		"function update() {\n" +
+		"	if(!window.updatesActive) {return;}\n"+
+		"	$.getJSON('./?cmd=update', function(data) { " +  
+		"	    for(var i=0; i<data.tours.length; i++) {	" +
+		"			var graph = document.getElementById('graph_' + i);\n"+
+		"           var context = graph.getContext('2d');\n"+
+		"			clearCanvas(context, graph); \n" +
+		" 			context.fillStyle = 'blue';\n" +          
+		"			var tour = data.tours[i].locations;\n" +
+		"			$('#length_'+i).text(data.tours[i].tour_length);"+
+		"           for(var j=0; j<tour.length; j++) {\n" +
+		"				var x = tour[j][0];\n" +
+		"               var y = tour[j][1];\n" +
+		"				context.fillRect(x-2,y-2,4,4);\n" +				
+		"			}\n" +	
+		"			for (var j = 0; j< tour.length-1; j++) { " +
+		"				context.beginPath();\n " +
+		"				var x = tour[j][0]; \n" +
+		"				var y = tour[j][1]; \n" +
+		"               context.moveTo(x,y);\n" +		
+		"				x = tour[j+1][0];\n "+
+		"           	y = tour[j+1][1];\n" +
+		"				context.lineTo(x,y);\n"+
+		"				context.stroke();\n" +
+		"			}\n" +
+		"       }\n"+		
+		"	});\n "+
+		"   "+
+		"}" +
+		"function clearCanvas(context, canvas) { " +
+  		"	context.clearRect(0, 0, canvas.width, canvas.height); "+
+  		"	var w = canvas.width;" +
+  		"	canvas.width = 1; " +
+  		"	canvas.width = w; " +
+		"}"+
+		"var refreshIntervalId = 1\n" +
+		"function init() { " +
+		"	refreshIntervalId = window.setInterval(update, 200);\n"	+
+		"	$('#stopButton').bind('click', function(){\n window.clearInterval(refreshIntervalId);$.getJSON('./?x=stop');});\n"+
+		"}\n"+
+		"</script>"
+	return ret
+}
+
+
+func sendJSON (w http.ResponseWriter) {
+	var buffer bytes.Buffer	
+	buffer.WriteString("{\"tours\" : [")
+	delimiter := ""
+	for i :=0; i <len(lengths); i++ {
+		the_tour := status_map[fmt.Sprintf("Population: %d", i+1)].best_tour
+		buffer.WriteString(fmt.Sprintf("%s\n { \"tour_length\" : %.3f, \"locations\" :[ ", delimiter, tour_length(the_tour)))
+		delimiter2 := ""
+		for j := range the_tour.order {
+			buffer.WriteString(fmt.Sprintf("%s\n\t[%d,%d]",delimiter2,(int)(the_tour.locations[the_tour.order[j]].X), (int)(the_tour.locations[the_tour.order[j]].Y)))
+			delimiter2 = ","
+		}
+		buffer.WriteString("\n] } ")
+		delimiter = ","
+	}
+	buffer.WriteString("] }")
+	w.Write([] byte (buffer.String()))
+	//w.Write([] byte("{\"tours\" : [ [ [100,200] , [300,222] ] ,  [ [100,200] , [300,222] ]] }"));
+}
+
 func serv(w http.ResponseWriter, req *http.Request) {
+
+		var buffer bytes.Buffer	
+		req.ParseForm()
+		for i, v := range req.Form{
+			fmt.Println(i,v)
+			if i == "cmd" && v[0] == "update" {
+				sendJSON(w)		
+				return
+			}
+		}
+	
+	
 	
 	count := 0
 	threads := 0
@@ -274,29 +356,30 @@ func serv(w http.ResponseWriter, req *http.Request) {
     for i:=0 ; i<10; i++ {
 		time.Sleep(1)
 	}	
+
 	
-	var buffer bytes.Buffer
-	
-	buffer.WriteString("<html><body><table border = '1'><tr>")
+	buffer.WriteString("<html><head><script src='http://code.jquery.com/jquery-1.8.0.js'></script>")
+	buffer.WriteString(javascript())
+	buffer.WriteString("</head><body><table border = '1'><tr>")
 	for i := range lengths {
 		buffer.WriteString(fmt.Sprintf("<th> Population %d </th>", i+1))
 	}
 	buffer.WriteString("</tr><tr>")
 	for i := range lengths {
-		buffer.WriteString(fmt.Sprintf("<td> %.3f </td>", tour_length(status_map[fmt.Sprintf("Population: %d", i+1)].best_tour)))
+		buffer.WriteString(fmt.Sprintf("<td id ='length_%d'> %.3f </td>", i, tour_length(status_map[fmt.Sprintf("Population: %d", i+1)].best_tour)))
 	}
 	buffer.WriteString("</tr><tr>")
 	for i :=0; i <len(lengths); i++ {
 		buffer.WriteString(fmt.Sprintf("<td><canvas id = 'graph_%d' width = '400' height = '400'> No support </canvas></td>",i))
 	}
 	buffer.WriteString("</tr></table>")
-	buffer.WriteString("<form action = '.' type = 'post'><input type= 'submit' value = 'Refresh'/></form>")
-	buffer.WriteString("<form action = '.' type = 'post'><input type= 'submit' value = 'Please Stop'/><input type = 'hidden' name = 'x' /></form>")
+	buffer.WriteString("<input type= 'submit' value = 'Please Stop' id = 'stopButton'/>")
 	buffer.WriteString("</body>")
 	for i :=0; i <len(lengths); i++ {
 		
-		the_tour := status_map[fmt.Sprintf("Population: %d", i+1)].best_tour
+		//the_tour := status_map[fmt.Sprintf("Population: %d", i+1)].best_tour
 		
+		/*
 		buffer.WriteString(fmt.Sprintf("<script> var graph = document.getElementById('graph_%d');\n",i))
 		buffer.WriteString("var context = graph.getContext('2d');\n")
 		buffer.WriteString("context.fillStyle = 'blue';\n")
@@ -316,7 +399,7 @@ func serv(w http.ResponseWriter, req *http.Request) {
 			buffer.WriteString(fmt.Sprintf("context.lineTo(%d,%d);\n",x,y))
 			buffer.WriteString("context.stroke();\n")
 		}
-		
+		*/
 		
 		buffer.WriteString("</script>")
 	}
@@ -326,7 +409,7 @@ func serv(w http.ResponseWriter, req *http.Request) {
 	
 	w.Write([]byte(buffer.String()))
 	
-	req.ParseForm()
+
 	for i, _ := range req.Form{
 		if i == "x" {
 			curtains <- true
