@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"math"
 	"math/rand"
 	"sort"
 	"runtime"
@@ -12,182 +11,6 @@ import (
 	"bytes"
 	"strconv"
 )
-
-type location struct {
-	X float64
-	Y float64
-}
-
-type tour struct {
-	locations   []location
-	order       []int
-	count       int
-	tour_length float64
-}
-
-func (t tour) swapMutation() float64 {
-	swap1 := (int)(rand.Float64() * (float64)(t.count))
-	swap2 := (int)(rand.Float64() * (float64)(t.count))
-
-	t.order[swap1], t.order[swap2] = t.order[swap2], t.order[swap1]
-	return tour_length(t)
-}
-
-func (t tour) insertionMutation() float64 {
-	element := (int)(rand.Float64() * (float64)(t.count))
-	insert_after := (int)(rand.Float64() * (float64)(t.count))
-
-	if element != insert_after {
-
-		if element > insert_after {
-			element, insert_after = insert_after, element
-		}
-
-		element_copy := t.order[element]
-
-		for i := element; i < insert_after; i++ {
-			t.order[i] = t.order[i+1]
-		}
-
-		t.order[insert_after] = element_copy
-
-		t.tour_length = tour_length(t)
-	}
-
-	return t.tour_length
-}
-
-func (t tour) branchSwapMutation() float64 {
-
-	start := (int)(rand.Float64() * (float64)(t.count))
-	stop := (int)(rand.Float64() * (float64)(t.count))
-
-	if start > stop {
-		start, stop = stop, start
-	}
-
-	if stop-start > 1 {
-		swapper := make([]int, stop-start+1)
-		swapper_count := 0
-		for i := stop; i > (start - 1); i-- {
-			swapper[swapper_count] = t.order[i]
-			swapper_count++
-		}
-		swapper_count = 0
-		for i := start; i < (stop + 1); i++ {
-			t.order[i] = swapper[swapper_count]
-			swapper_count++
-		}
-	}
-	return tour_length(t)
-}
-
-func (p population) Len() int {
-	return len(p.tours)
-}
-
-func (p population) Less(i, j int) bool {
-	return p.tours[i].tour_length < p.tours[j].tour_length
-}
-
-func (p population) Swap(i, j int) {
-	p.tours[i], p.tours[j] = p.tours[j], p.tours[i]
-}
-
-type population struct {
-	tours     []tour
-	best_tour tour
-}
-
-func create_population(starting_tour tour, size int) population {
-	var ret population
-	ret.tours = make([]tour, size)
-	ret.best_tour = copy_tour(starting_tour)
-	for i := range ret.tours {
-		ret.tours[i] = copy_tour(starting_tour)
-	}
-	return ret
-}
-
-func copy_tour(tour_to_copy tour) tour {
-	var ret tour
-	ret.count = tour_to_copy.count
-	ret.locations = make([]location, ret.count)
-	ret.order = make([]int, ret.count)
-	for i := range ret.order {
-		ret.locations[i] = tour_to_copy.locations[i]
-		ret.order[i] = tour_to_copy.order[i]
-	}
-	ret.tour_length = tour_to_copy.tour_length
-	return ret
-}
-
-func create_tour(count int, bounds float64) tour {
-	var ret tour
-
-	ret.count = count
-	ret.locations = make([]location, count)
-	ret.order = make([]int, count)
-	for i := 0; i < count; i++ {
-		ret.locations[i] = location{rand.Float64() * bounds, rand.Float64() * bounds}
-		ret.order[i] = i
-	}
-
-	ret.tour_length = tour_length(ret)
-
-	return ret
-}
-
-func distance(location1 location, location2 location) float64 {
-	return math.Max(math.Abs(location1.X-location2.X), math.Abs(location1.Y-location2.Y))
-}
-
-func tour_length(tour_in tour) float64 {
-
-	length := 0.0
-	for i := 1; i < len(tour_in.order); i++ {
-		length += distance(tour_in.locations[tour_in.order[i-1]], tour_in.locations[tour_in.order[i]])
-	}
-	length += distance(tour_in.locations[tour_in.order[0]], tour_in.locations[tour_in.order[len(tour_in.order)-1]])
-	return length
-}
-
-func iterate(solutions population) {
-	
-	solutions.best_tour = solutions.tours[0]
-
-	deadSolutions := 0
-
-	for i := 1; i < len(solutions.tours); i++ {
-		probability := (float64)(i) / (float64)(len(solutions.tours))
-		if rand.Float64() < probability {
-			solutions.tours = append(solutions.tours[:i-deadSolutions], solutions.tours[i+1-deadSolutions:]...)
-			deadSolutions++
-		}
-	}
-
-	survivors := len(solutions.tours)
-
-	for i := 0; i < deadSolutions; i++ {
-		mom := (int)(rand.Float64() * (float64)(survivors))
-		baby := copy_tour(solutions.tours[mom])
-
-		var newLength float64
-		switch (int)(rand.Float64() * (float64(4))) {
-		case 0:
-			newLength = baby.insertionMutation()
-		case 1:
-			newLength = baby.swapMutation()
-		case 2:
-			newLength = baby.branchSwapMutation()
-		case 3:
-			newLength = baby.branchSwapMutation()
-		}
-		baby.tour_length = newLength
-		solutions.tours = append(solutions.tours, baby)
-	}
-	sort.Sort(solutions)
-}
 
 func iterate_n(solutions population, name string, stop chan bool, c chan population_result) {
 	
@@ -201,7 +24,6 @@ func iterate_n(solutions population, name string, stop chan bool, c chan populat
 		iterate(solutions)
 		current_best := tour_length(solutions.tours[0])
 		if(current_best < best_tour_length) {
-			//fmt.Printf("%s\tGen: %d\tNew Best: %.3f\n", name, i, current_best)
 			best_tour_length = current_best
 			result.length = current_best
 			result.best_tour = solutions.tours[0]
@@ -217,9 +39,6 @@ func iterate_n(solutions population, name string, stop chan bool, c chan populat
 		i++
 	}	
 }
-
-
-func print_update()
 
 type population_result struct {
 	name string
@@ -298,7 +117,7 @@ func javascript() string {
 		"}"+
 		"var refreshIntervalId = 1\n" +
 		"function init() { " +
-		"	refreshIntervalId = window.setInterval(update, 200);\n"	+
+		"	refreshIntervalId = window.setInterval(update, 50);\n"	+
 		"	$('#stopButton').bind('click', function(){\n window.clearInterval(refreshIntervalId);$.getJSON('./?x=stop');});\n"+
 		"}\n"+
 		"</script>"
@@ -323,7 +142,6 @@ func sendJSON (w http.ResponseWriter) {
 	}
 	buffer.WriteString("] }")
 	w.Write([] byte (buffer.String()))
-	//w.Write([] byte("{\"tours\" : [ [ [100,200] , [300,222] ] ,  [ [100,200] , [300,222] ]] }"));
 }
 
 func serv(w http.ResponseWriter, req *http.Request) {
@@ -337,8 +155,6 @@ func serv(w http.ResponseWriter, req *http.Request) {
 				return
 			}
 		}
-	
-	
 	
 	count := 0
 	threads := 0
@@ -376,31 +192,6 @@ func serv(w http.ResponseWriter, req *http.Request) {
 	buffer.WriteString("<input type= 'submit' value = 'Please Stop' id = 'stopButton'/>")
 	buffer.WriteString("</body>")
 	for i :=0; i <len(lengths); i++ {
-		
-		//the_tour := status_map[fmt.Sprintf("Population: %d", i+1)].best_tour
-		
-		/*
-		buffer.WriteString(fmt.Sprintf("<script> var graph = document.getElementById('graph_%d');\n",i))
-		buffer.WriteString("var context = graph.getContext('2d');\n")
-		buffer.WriteString("context.fillStyle = 'blue';\n")
-		for j := range the_tour.order {
-			buffer.WriteString(fmt.Sprintf("context.fillRect(%d,%d,%d,%d);\n", (int)(the_tour.locations[the_tour.order[j]].X-2), (int)(the_tour.locations[the_tour.order[j]].Y-2), 4,4))
-		}
-		
-		
-		for j := 0; j< len(the_tour.order) -1; j++ {
-			buffer.WriteString("context.beginPath();\n")
-			x := (int)(the_tour.locations[the_tour.order[j]].X)
-			y := (int)(the_tour.locations[the_tour.order[j]].Y)
-			buffer.WriteString(fmt.Sprintf("context.moveTo(%d,%d);\n", x,y))
-			
-			x = (int)(the_tour.locations[the_tour.order[j+1]].X)
-			y = (int)(the_tour.locations[the_tour.order[j+1]].Y)
-			buffer.WriteString(fmt.Sprintf("context.lineTo(%d,%d);\n",x,y))
-			buffer.WriteString("context.stroke();\n")
-		}
-		*/
-		
 		buffer.WriteString("</script>")
 	}
 	
@@ -524,5 +315,4 @@ func launch(count int, cpus int) {
 	for i:=0; i<cpus; i++ {
 		fmt.Printf("%s: %.3f\n", results[i].name, results[i].length)
 	}
-
 }
